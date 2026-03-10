@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
-import imageio.v2 as imageio
+import rasterio
+from rasterio.io import MemoryFile
 import cv2
 from tensorflow.keras.models import load_model
 from skimage.metrics import peak_signal_noise_ratio
@@ -144,9 +145,17 @@ if b02_file and b03_file and b04_file:
 
     with st.spinner("Processing satellite image..."):
 
-        b02 = imageio.imread(b02_file).astype(np.float32)
-        b03 = imageio.imread(b03_file).astype(np.float32)
-        b04 = imageio.imread(b04_file).astype(np.float32)
+        with MemoryFile(b02_file.read()) as memfile:
+            with memfile.open() as src:
+                b02 = src.read(1).astype(np.float32)
+
+        with MemoryFile(b03_file.read()) as memfile:
+            with memfile.open() as src:
+                b03 = src.read(1).astype(np.float32)
+
+        with MemoryFile(b04_file.read()) as memfile:
+            with memfile.open() as src:
+                b04 = src.read(1).astype(np.float32)
 
         b02 = b02/10000
         b03 = b03/10000
