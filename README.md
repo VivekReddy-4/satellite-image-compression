@@ -82,7 +82,7 @@ Compression Ratio
 ## Results
 
 Average PSNR:  
-≈ 37.5
+≈ 38.7
 
 Average SSIM:  
 ≈ 0.92
