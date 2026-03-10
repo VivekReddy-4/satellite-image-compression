@@ -145,9 +145,7 @@ if b02_file and b03_file and b04_file:
     with st.spinner("Processing satellite image..."):
 
         b02 = imageio.imread(b02_file).astype(np.float32)
-
         b03 = imageio.imread(b03_file).astype(np.float32)
-
         b04 = imageio.imread(b04_file).astype(np.float32)
 
         b02 = b02/10000

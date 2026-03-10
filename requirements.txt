@@ -1,5 +1,6 @@
-streamlit==1.33.0
-tensorflow-cpu==2.15.0
-numpy==1.26.4
-opencv-python-headless==4.9.0.80
-scikit-image==0.22.0
+streamlit==1.32.2
+tensorflow-cpu==2.12.1
+numpy==1.23.5
+opencv-python-headless==4.8.1.78
+scikit-image==0.21.0
+imageio==2.31.5
