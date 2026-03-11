@@ -7,7 +7,12 @@ from tensorflow.keras.models import load_model
 from skimage.metrics import peak_signal_noise_ratio
 from skimage.metrics import structural_similarity
 
-model = load_model("model.keras")
+# -------- Load Model (cached) --------
+@st.cache_resource
+def load_autoencoder():
+    return load_model("model.keras")
+
+model = load_autoencoder()
 
 st.set_page_config(page_title="Satellite Image Compression", layout="wide")
 
@@ -15,7 +20,6 @@ st.set_page_config(page_title="Satellite Image Compression", layout="wide")
 st.markdown("""
 <style>
 
-/* ---------------- BACKGROUND ---------------- */
 .stApp{
 background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
 color:white;
@@ -29,15 +33,6 @@ display:none !important;
 display:none !important;
 }
 
-button[title="Fullscreen"]{
-display:none !important;
-}
-
-button[aria-label="Fullscreen"]{
-display:none !important;
-}
-
-/* ---------------- TITLES ---------------- */
 .main-title{
 font-size:48px;
 font-weight:bold;
@@ -52,52 +47,13 @@ margin-bottom:40px;
 color:white;
 }
 
-/* ---------------- HEADINGS ---------------- */
 h1,h2,h3,h4,h5{
 color:white !important;
 }
 
-/* ---------------- NORMAL TEXT ---------------- */
-p,span,div{
-color:white;
-}
-
-/* ---------------- FILE UPLOADER ---------------- */
 label{
 color:white !important;
 font-weight:bold;
-}
-
-/* uploaded filename */
-[data-testid="stFileUploaderFileName"]{
-color:white !important;
-font-weight:bold;
-}
-
-/* uploaded file size */
-[data-testid="stFileUploaderFile"] small{
-color:#E0E0E0 !important;
-}
-
-/* browse button */
-.stFileUploader button{
-color:black !important;
-font-weight:bold;
-}
-
-/* ---------------- SPINNER ---------------- */
-.stSpinner{
-color:white !important;
-}
-
-/* ---------------- IMAGE CAPTION ---------------- */
-figcaption{
-color:white !important;
-}
-
-/* ---------------- METRICS ---------------- */
-[data-testid="stMetricLabel"]{
-color:white !important;
 }
 
 [data-testid="stMetricValue"]{
@@ -106,19 +62,48 @@ font-size:40px;
 font-weight:bold;
 }
 
-/* ---------------- DOWNLOAD BUTTON ---------------- */
-.stDownloadButton button{
-background-color:#00E5FF !important;
-color:black !important;
-font-weight:bold;
-border-radius:8px;
-padding:10px 20px;
+/* Fix Browse Files button text visibility */
+.stFileUploader button {
+    color: black !important;
+    background-color: #00E5FF !important;
+    font-weight: bold !important;
+    border-radius: 6px !important;
 }
 
-.stDownloadButton button:hover{
-background-color:#00c6d7 !important;
+.stFileUploader button:hover {
+    color: black !important;
+    background-color: #00c6d7 !important;
+}
+            
+/* Fix uploaded filename color */
+[data-testid="stFileUploaderFileName"] {
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
 }
 
+/* Fix uploaded file size color */
+[data-testid="stFileUploaderFile"] small {
+    color: #E0E0E0 !important;
+}
+
+/* Fix file icon color */
+[data-testid="stFileUploaderFile"] svg {
+    color: #FFFFFF !important;
+}
+
+/* Fix Download Button visibility */
+.stDownloadButton button {
+    background-color:#00E5FF !important;
+    color:black !important;
+    font-weight:bold !important;
+    border-radius:8px !important;
+    padding:10px 20px !important;
+}
+
+.stDownloadButton button:hover {
+    background-color:#00c6d7 !important;
+    color:black !important;
+}           
 </style>
 """, unsafe_allow_html=True)
 
@@ -140,11 +125,13 @@ with col2:
 with col3:
     b04_file = st.file_uploader("Upload B04 (Red)", type=["jp2"])
 
+
 # ---------------- PROCESS ----------------
 if b02_file and b03_file and b04_file:
 
-    with st.spinner("Processing satellite image..."):
+    with st.spinner("Running semantic-aware compression... please wait"):
 
+        # -------- Load JP2 bands --------
         with MemoryFile(b02_file.read()) as memfile:
             with memfile.open() as src:
                 b02 = src.read(1).astype(np.float32)
@@ -157,54 +144,58 @@ if b02_file and b03_file and b04_file:
             with memfile.open() as src:
                 b04 = src.read(1).astype(np.float32)
 
-        b02 = b02/10000
-        b03 = b03/10000
-        b04 = b04/10000
+        # -------- Normalize --------
+        b02 = b02 / 10000
+        b03 = b03 / 10000
+        b04 = b04 / 10000
 
-        rgb = np.dstack((b04,b03,b02))
-        rgb = np.clip(rgb,0,1)
+        # -------- RGB creation --------
+        rgb = np.dstack((b04, b03, b02))
+        rgb = np.clip(rgb, 0, 1)
 
-        rgb = cv2.resize(rgb,(2048,2048),interpolation=cv2.INTER_AREA)
+        # resize for faster inference
+        rgb = cv2.resize(rgb, (1024, 1024), interpolation=cv2.INTER_AREA)
 
-        gray = cv2.cvtColor((rgb*255).astype(np.uint8),cv2.COLOR_RGB2GRAY)
-
-        edges = cv2.Canny(gray,50,150)
+        # -------- Semantic preprocessing --------
+        gray = cv2.cvtColor((rgb * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
+        edges = cv2.Canny(gray, 50, 150)
 
         mask = edges > np.mean(edges)
-
-        blur = cv2.GaussianBlur(rgb,(5,5),0)
+        blur = cv2.GaussianBlur(rgb, (5, 5), 0)
 
         semantic = rgb.copy()
-
-        mask3 = np.stack([mask]*3,axis=-1)
+        mask3 = np.stack([mask] * 3, axis=-1)
 
         semantic[~mask3] = blur[~mask3]
 
+        # -------- Patch extraction --------
         patch_size = 128
-        patches=[]
+        patches = []
 
-        h,w,_ = semantic.shape
+        h, w, _ = semantic.shape
 
-        for i in range(0,h-patch_size+1,patch_size):
-            for j in range(0,w-patch_size+1,patch_size):
-                patches.append(semantic[i:i+patch_size,j:j+patch_size])
+        for i in range(0, h - patch_size + 1, patch_size):
+            for j in range(0, w - patch_size + 1, patch_size):
+                patches.append(semantic[i:i + patch_size, j:j + patch_size])
 
         patches = np.array(patches)
 
+        # -------- Model inference --------
         pred = model.predict(patches)
 
+        # -------- Reconstruction --------
         reconstructed = np.zeros_like(semantic)
 
         patch_id = 0
 
-        for i in range(0,h-patch_size+1,patch_size):
-            for j in range(0,w-patch_size+1,patch_size):
+        for i in range(0, h - patch_size + 1, patch_size):
+            for j in range(0, w - patch_size + 1, patch_size):
 
-                reconstructed[i:i+patch_size,j:j+patch_size] = pred[patch_id]
-
+                reconstructed[i:i + patch_size, j:j + patch_size] = pred[patch_id]
                 patch_id += 1
 
-        psnr = peak_signal_noise_ratio(semantic,reconstructed,data_range=1)
+        # -------- Metrics --------
+        psnr = peak_signal_noise_ratio(semantic, reconstructed, data_range=1)
 
         ssim = structural_similarity(
             semantic,
@@ -216,27 +207,27 @@ if b02_file and b03_file and b04_file:
     # ---------------- RESULTS ----------------
     st.write("### Reconstruction Results")
 
-    c1,c2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
     with c1:
-        st.image(semantic,caption="Original Image",width="stretch")
+        st.image(semantic, caption="Original Image", width="stretch")
 
     with c2:
-        st.image(reconstructed,caption="Reconstructed Image",width="stretch")
+        st.image(reconstructed, caption="Reconstructed Image", width="stretch")
 
     st.write("### Compression Performance")
 
-    m1,m2 = st.columns(2)
+    m1, m2 = st.columns(2)
 
     with m1:
-        st.metric("PSNR",f"{psnr:.2f}")
+        st.metric("PSNR", f"{psnr:.2f}")
 
     with m2:
-        st.metric("SSIM",f"{ssim:.3f}")
+        st.metric("SSIM", f"{ssim:.3f}")
 
-    reconstructed_uint8=(reconstructed*255).astype(np.uint8)
-
-    success,buffer=cv2.imencode(".png",reconstructed_uint8)
+    # -------- Download --------
+    reconstructed_uint8 = (reconstructed * 255).astype(np.uint8)
+    success, buffer = cv2.imencode(".png", reconstructed_uint8)
 
     if success:
         st.download_button(
@@ -245,3 +236,6 @@ if b02_file and b03_file and b04_file:
             file_name="compressed_image.png",
             mime="image/png"
         )
+
+else:
+    st.info("Please upload B02, B03, and B04 Sentinel-2 bands to begin.")
