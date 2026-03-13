@@ -10,7 +10,7 @@ from skimage.metrics import structural_similarity
 # -------- Load Model (cached) --------
 @st.cache_resource
 def load_autoencoder():
-    return load_model("model.keras")
+    return load_model("model.keras", compile=False)
 
 model = load_autoencoder()
 
